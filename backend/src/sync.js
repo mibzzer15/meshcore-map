@@ -39,37 +39,42 @@ async function syncNodes() {
     });
 
     const page = await browser.newPage();
-    let nodes = null;
 
-    // Intercept the nodes API response
-    page.on('response', async (response) => {
-      const url = response.url();
-      if (url.includes('api.letsmesh.net/api/nodes') && response.status() === 200) {
-        try {
-          const data = await response.json();
-          nodes = Array.isArray(data) ? data : data.nodes ?? [];
-          console.log(`[sync] Intercepted ${nodes.length} total nodes`);
-        } catch (e) {
-          console.error('[sync] Failed to parse nodes response:', e.message);
-        }
-      }
-    });
-
-    // Load the analyzer page — this triggers the nodes API call
+    // Step 1: Load analyzer.letsmesh.net to get Cloudflare clearance cookies
+    console.log('[sync] Loading analyzer page for CF clearance...');
     await page.goto('https://analyzer.letsmesh.net', {
       waitUntil: 'networkidle2',
       timeout: 60000,
     });
+    await new Promise(r => setTimeout(r, 2000));
 
-    // Give a moment for any delayed API calls
-    await new Promise(r => setTimeout(r, 3000));
+    // Step 2: Fetch the API from within the browser context (uses CF cookies)
+    console.log('[sync] Fetching nodes API from browser context...');
+    const result = await page.evaluate(async () => {
+      try {
+        const res = await fetch('https://api.letsmesh.net/api/nodes', {
+          headers: {
+            'Origin': 'https://analyzer.letsmesh.net',
+            'Referer': 'https://analyzer.letsmesh.net/',
+          },
+        });
+        if (!res.ok) return { error: `HTTP ${res.status}` };
+        const data = await res.json();
+        return { data };
+      } catch (e) {
+        return { error: e.message };
+      }
+    });
+
     await browser.close();
     browser = null;
 
-    if (!nodes) {
-      console.error('[sync] No nodes data intercepted — page may not have loaded correctly');
+    if (result.error) {
+      console.error('[sync] API fetch failed inside browser:', result.error);
       return;
     }
+
+    const nodes = Array.isArray(result.data) ? result.data : result.data.nodes ?? [];
 
     const upsert = db.prepare(`
       INSERT INTO nodes (id, name, lat, lng, hardware, firmware, last_heard, raw_json, updated_at)
