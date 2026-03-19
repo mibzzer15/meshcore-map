@@ -23,9 +23,19 @@ async function syncNodes() {
   console.log('[sync] Launching browser to fetch nodes from letsmesh.net...');
   let browser;
   try {
+    // Use system Chromium to avoid missing library issues on Ubuntu
+    const chromiumPaths = [
+      '/usr/bin/chromium-browser',
+      '/usr/bin/chromium',
+      '/snap/bin/chromium',
+    ];
+    const fs = require('fs');
+    const executablePath = chromiumPaths.find(p => fs.existsSync(p));
+
     browser = await puppeteer.launch({
       headless: true,
-      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
+      executablePath,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
     });
 
     const page = await browser.newPage();
