@@ -54,4 +54,4 @@ gh repo create meshcore-map --public --source=. --remote=origin --push
 
 echo ""
 echo "=== Done! ==="
-gh repo view --web
+echo "Repo URL: $(gh repo view --json url -q .url)"
