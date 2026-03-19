@@ -1,4 +1,4 @@
-const fetch = require('node-fetch');
+const puppeteer = require('puppeteer');
 const cron = require('node-cron');
 const db = require('./db');
 
@@ -20,28 +20,46 @@ function isInBayArea(lat, lng) {
 }
 
 async function syncNodes() {
-  console.log('[sync] Fetching nodes from letsmesh.net...');
+  console.log('[sync] Launching browser to fetch nodes from letsmesh.net...');
+  let browser;
   try {
-    const res = await fetch('https://api.letsmesh.net/api/nodes', {
-      headers: {
-        'Origin': 'https://analyzer.letsmesh.net',
-        'Referer': 'https://analyzer.letsmesh.net/',
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'sec-fetch-dest': 'empty',
-        'sec-fetch-mode': 'cors',
-        'sec-fetch-site': 'same-site',
-        'sec-ch-ua': '"Chromium";v="146", "Not-A.Brand";v="24", "Google Chrome";v="146"',
-        'sec-ch-ua-mobile': '?0',
-        'sec-ch-ua-platform': '"Windows"',
-        'DNT': '1',
-      },
+    browser = await puppeteer.launch({
+      headless: true,
+      args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-gpu'],
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
 
-    const data = await res.json();
-    const nodes = Array.isArray(data) ? data : data.nodes ?? [];
+    const page = await browser.newPage();
+    let nodes = null;
+
+    // Intercept the nodes API response
+    page.on('response', async (response) => {
+      const url = response.url();
+      if (url.includes('api.letsmesh.net/api/nodes') && response.status() === 200) {
+        try {
+          const data = await response.json();
+          nodes = Array.isArray(data) ? data : data.nodes ?? [];
+          console.log(`[sync] Intercepted ${nodes.length} total nodes`);
+        } catch (e) {
+          console.error('[sync] Failed to parse nodes response:', e.message);
+        }
+      }
+    });
+
+    // Load the analyzer page — this triggers the nodes API call
+    await page.goto('https://analyzer.letsmesh.net', {
+      waitUntil: 'networkidle2',
+      timeout: 60000,
+    });
+
+    // Give a moment for any delayed API calls
+    await new Promise(r => setTimeout(r, 3000));
+    await browser.close();
+    browser = null;
+
+    if (!nodes) {
+      console.error('[sync] No nodes data intercepted — page may not have loaded correctly');
+      return;
+    }
 
     const upsert = db.prepare(`
       INSERT INTO nodes (id, name, lat, lng, hardware, firmware, last_heard, raw_json, updated_at)
@@ -60,7 +78,6 @@ async function syncNodes() {
     const insertMany = db.transaction((nodes) => {
       let count = 0;
       for (const node of nodes) {
-        // Field names may vary — adjust after inspecting real API response
         const lat = node.lat ?? node.latitude;
         const lng = node.lng ?? node.lon ?? node.longitude;
 
@@ -87,6 +104,7 @@ async function syncNodes() {
     console.log(`[sync] Saved ${count} Bay Area nodes`);
   } catch (err) {
     console.error('[sync] Failed:', err.message);
+    if (browser) await browser.close().catch(() => {});
   }
 }
 
