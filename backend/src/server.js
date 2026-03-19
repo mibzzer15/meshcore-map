@@ -9,7 +9,6 @@ app.use(express.json());
 
 // Routes
 app.use('/api/nodes', require('./routes/nodes'));
-app.use('/api/repeaters', require('./routes/repeaters'));
 
 // Health check
 app.get('/health', (req, res) => res.json({ ok: true }));

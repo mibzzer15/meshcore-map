@@ -3,7 +3,6 @@ const path = require('path');
 
 const DB_PATH = path.join(__dirname, '..', 'data', 'meshcore.db');
 
-// Ensure data directory exists
 const fs = require('fs');
 fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
 
@@ -19,26 +18,28 @@ db.exec(`
     firmware TEXT,
     last_heard TEXT,
     raw_json TEXT,
-    updated_at TEXT
+    updated_at TEXT,
+    is_mine INTEGER DEFAULT 0
   );
 
-  CREATE TABLE IF NOT EXISTS my_repeaters (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
+  CREATE TABLE IF NOT EXISTS my_repeater_details (
+    node_id TEXT PRIMARY KEY REFERENCES nodes(id),
     callsign TEXT,
-    lat REAL NOT NULL,
-    lng REAL NOT NULL,
     frequency REAL,
     offset REAL,
     ctcss TEXT,
     dcs TEXT,
     power_watts INTEGER,
-    hardware TEXT,
     notes TEXT,
-    node_id TEXT REFERENCES nodes(id),
-    created_at TEXT DEFAULT (datetime('now')),
     updated_at TEXT DEFAULT (datetime('now'))
   );
 `);
+
+// Migrate existing nodes table if is_mine column doesn't exist
+try {
+  db.exec(`ALTER TABLE nodes ADD COLUMN is_mine INTEGER DEFAULT 0`);
+} catch (e) {
+  // Column already exists, ignore
+}
 
 module.exports = db;

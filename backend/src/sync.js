@@ -81,8 +81,8 @@ async function syncNodes() {
   }
 }
 
-// Run on startup, then every 5 minutes
+// Run on startup, then every hour
 syncNodes();
-cron.schedule('*/5 * * * *', syncNodes);
+cron.schedule('0 * * * *', syncNodes);
 
 module.exports = { syncNodes };
